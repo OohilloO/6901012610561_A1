@@ -1,0 +1,258 @@
+import random
+
+# ---------- ค่าคงที่ของโลก/ด่าน ----------
+groundY = 300
+scrollSpeed = 5
+genAheadDistance = 1000  # สร้างอุปสรรคล่วงหน้าให้พ้นขอบจอเท่านี้
+
+# ---------- ตัวละคร ----------
+playerScreenX = 150
+playerSize = 40
+gravity = 0.9
+jumpForce = -16
+
+# ---------- ตัวแปรสถานะเกม ----------
+playerY = 0
+playerVelY = 0
+isJumping = False
+
+worldOffset = 0
+score = 0
+gameState = "PLAYING"  # "PLAYING" หรือ "LOSE"
+
+# แทนที่จะเก็บอุปสรรคเป็น dict เราใช้ list แยกทีละค่า (parallel lists)
+obsX = []        # ตำแหน่ง x ของอุปสรรคแต่ละอัน (list)
+obsW = []        # ความกว้างD
+obsH = []        # ความสูง
+obsPassed = []   # 1 = ผ่านไปแล้ว, 0 = ยังไม่ผ่าน
+
+nextObstacleX = 400.0
+
+thaiFontName = "Tahoma"
+thaiFont = None
+
+
+def setup():
+    size(800, 400)
+    textAlign(CENTER, CENTER)
+    loadThaiFont()
+    resetGame()
+
+
+def loadThaiFont():
+    # เลือกฟอนต์ที่รองรับภาษาไทย ป้องกันตัวอักษรกลายเป็นกล่อง
+    global thaiFont
+    candidates = ["Tahoma", "Leelawadee UI", "Loma", "Garuda", "Norasi", "Waree"]
+    available = PFont.list()
+
+    found = None
+    i = 0
+    while i < len(candidates):
+        name = candidates[i]
+        if name in available:
+            found = name
+            break
+        i = i + 1
+
+    if found is not None:
+        thaiFont = createFont(found, 18)
+        textFont(thaiFont)
+
+
+def resetGame():
+    global playerY, playerVelY, isJumping
+    global worldOffset, score, gameState
+    global obsX, obsW, obsH, obsPassed, nextObstacleX
+
+    playerY = groundY - playerSize
+    playerVelY = 0
+    isJumping = False
+
+    worldOffset = 0
+    score = 0
+    gameState = "PLAYING"
+
+    obsX = []
+    obsW = []
+    obsH = []
+    obsPassed = []
+    nextObstacleX = 400.0
+
+    while nextObstacleX < worldOffset + width + genAheadDistance:
+        addObstacle(nextObstacleX)
+        nextObstacleX = nextObstacleX + random.uniform(180, 320)
+
+
+def addObstacle(x):
+    # เพิ่มอุปสรรคใหม่ 1 อัน โดยใส่ค่าเข้าไปใน list แต่ละเส้นพร้อมกัน
+    global obsX, obsW, obsH, obsPassed
+    h = random.uniform(30, 60)
+    obsX.append(x)
+    obsW.append(30)
+    obsH.append(h)
+    obsPassed.append(0)
+
+
+def draw():
+    drawBackground()
+
+    if gameState == "PLAYING":
+        updatePlayer()
+        updateWorld()
+        checkCollisions()
+
+    drawGround()
+    drawObstacles()
+    drawPlayer()
+    drawHUD()
+
+    if gameState == "LOSE":
+        drawEndScreen("คุณแพ้เกม! กด R เพื่อเริ่มใหม่", color(200, 60, 60))
+
+
+# ---------- อัปเดตตัวละคร (แรงโน้มถ่วง/กระโดด) ----------
+def updatePlayer():
+    global playerY, playerVelY, isJumping
+    playerVelY = playerVelY + gravity
+    playerY = playerY + playerVelY
+
+    floorY = groundY - playerSize
+    if playerY >= floorY:
+        playerY = floorY
+        playerVelY = 0
+        isJumping = False
+
+
+# ---------- อัปเดตระยะทางโลก / สร้าง-ลบอุปสรรค ----------
+def updateWorld():
+    global worldOffset, score, nextObstacleX
+    global obsX, obsW, obsH, obsPassed
+
+    worldOffset = worldOffset + scrollSpeed
+
+    # นับคะแนนเมื่อผ่านอุปสรรคไปแล้ว (วนลูปด้วย index)
+    i = 0
+    while i < len(obsX):
+        screenX = obsX[i] - worldOffset
+        if obsPassed[i] == 0 and screenX + obsW[i] < playerScreenX:
+            obsPassed[i] = 1
+            score = score + 1
+        i = i + 1
+
+    # สร้างอุปสรรคเพิ่มเรื่อยๆ ไม่มีที่สิ้นสุด
+    while nextObstacleX < worldOffset + width + genAheadDistance:
+        addObstacle(nextObstacleX)
+        nextObstacleX = nextObstacleX + random.uniform(180, 320)
+
+    # ลบอุปสรรคที่หลุดจอไปทางซ้ายแล้ว โดยสร้าง list ใหม่ทีละเส้น
+    newX = []
+    newW = []
+    newH = []
+    newPassed = []
+    i = 0
+    while i < len(obsX):
+        if obsX[i] - worldOffset > -100:
+            newX.append(obsX[i])
+            newW.append(obsW[i])
+            newH.append(obsH[i])
+            newPassed.append(obsPassed[i])
+        i = i + 1
+
+    obsX = newX
+    obsW = newW
+    obsH = newH
+    obsPassed = newPassed
+
+
+# ---------- ตรวจชน ----------
+def checkCollisions():
+    global gameState
+    i = 0
+    while i < len(obsX):
+        screenX = obsX[i] - worldOffset
+        w = obsW[i]
+        h = obsH[i]
+
+        overlapX = (playerScreenX + playerSize * 0.5 > screenX and
+                    playerScreenX - playerSize * 0.5 < screenX + w)
+        overlapY = playerY + playerSize > groundY - h
+
+        if overlapX and overlapY:
+            gameState = "LOSE"
+        i = i + 1
+
+
+# ---------- อินพุต ----------
+def keyPressed():
+    global playerVelY, isJumping
+    if key == ' ' and gameState == "PLAYING" and not isJumping:
+        playerVelY = jumpForce
+        isJumping = True
+    if key == 'r' or key == 'R':
+        resetGame()
+
+
+def mousePressed():
+    global playerVelY, isJumping
+    if gameState == "PLAYING" and not isJumping:
+        playerVelY = jumpForce
+        isJumping = True
+
+
+# ---------- ส่วนวาดภาพ ----------
+def drawBackground():
+    background(135, 206, 235)  # ท้องฟ้า
+
+
+def drawGround():
+    noStroke()
+    fill(90, 60, 30)
+    rect(0, groundY, width, height - groundY)
+
+
+def drawPlayer():
+    fill(255, 200, 0)
+    noStroke()
+    rectMode(CORNER)
+    rect(playerScreenX - playerSize / 2, playerY, playerSize, playerSize, 8)
+    # ตา ให้ดูมีชีวิตชีวา
+    fill(0)
+    ellipse(playerScreenX + 8, playerY + 14, 6, 6)
+
+
+def drawObstacles():
+    fill(200, 40, 40)
+    noStroke()
+    i = 0
+    while i < len(obsX):
+        screenX = obsX[i] - worldOffset
+        w = obsW[i]
+        h = obsH[i]
+        if screenX > -50 and screenX < width + 50:
+            triangle(screenX, groundY,
+                      screenX + w, groundY,
+                      screenX + w / 2, groundY - h)
+        i = i + 1
+
+
+def drawHUD():
+    fill(0)
+    textAlign(LEFT, TOP)
+    textSize(18)
+    text("คะแนน: " + str(score), 15, 15)
+    text("ระยะทางที่วิ่งมา: " + str(int(worldOffset)) + " px", 15, 40)
+    textAlign(CENTER, CENTER)
+
+
+def drawEndScreen(msg, c):
+    fill(0, 0, 0, 120)
+    rect(0, 0, width, height)
+    fill(c)
+    textSize(32)
+    text(msg, width / 2, height / 2 - 20)
+    fill(255)
+    textSize(18)
+    text("คะแนนสุดท้าย: " + str(score), width / 2, height / 2 + 20)
+
+
+run()
